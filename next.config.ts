@@ -1,7 +1,14 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
-const nextConfig: NextConfig = {
-  /* config options here */
+const config: NextConfig = {
+  output: 'export',
+  distDir: 'build-tmp',
+  images: {
+    unoptimized: true,
+  },
+  assetPrefix: '/',
+  trailingSlash: true,
+  optimizeFonts: false,
 };
 
-export default nextConfig;
+export default config;

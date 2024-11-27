@@ -1,101 +1,252 @@
-import Image from "next/image";
+'use client';
+import { useState, FormEvent, useEffect } from 'react';
+import { Send, Bot, Crown, Gift } from 'lucide-react';
 
-export default function Home() {
+interface Message {
+  type: 'user' | 'bot';
+  content: string;
+}
+
+interface ApiResponse {
+  choices: Array<{
+    message: {
+      content: string;
+    };
+  }>;
+}
+
+interface UserStats {
+  isPremium: boolean;
+  dailyMessageCount: number;
+  lastRewardDate: string;
+  totalTokensEarned: number;
+}
+
+export default function ChatInterface() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [userStats, setUserStats] = useState<UserStats>({
+    isPremium: false,
+    dailyMessageCount: 0,
+    lastRewardDate: new Date().toISOString().split('T')[0],
+    totalTokensEarned: 0
+  });
+  const [showRewardNotification, setShowRewardNotification] = useState(false);
+
+  const DAILY_MESSAGE_LIMIT = 100;
+  const TOKENS_PER_COMPLETION = 0.1;
+
+  useEffect(() => {
+    const initializeStorage = async () => {
+      if (typeof window !== 'undefined' && 'chrome' in window) {
+        try {
+          chrome.storage.local.get(['userStats'], (result) => {
+            if (result.userStats) {
+              const savedStats = result.userStats;
+              const today = new Date().toISOString().split('T')[0];
+              
+              if (savedStats.lastRewardDate !== today) {
+                setUserStats({
+                  ...savedStats,
+                  dailyMessageCount: 0,
+                  lastRewardDate: today
+                });
+              } else {
+                setUserStats(savedStats);
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Storage initialization failed:', error);
+        }
+      }
+    };
+
+    initializeStorage();
+  }, []);
+
+  useEffect(() => {
+    const saveStats = async () => {
+      if (typeof window !== 'undefined' && 'chrome' in window) {
+        try {
+          chrome.storage.local.set({ userStats });
+        } catch (error) {
+          console.error('Failed to save stats:', error);
+        }
+      }
+    };
+
+    saveStats();
+  }, [userStats]);
+
+  const handlePremiumPurchase = async () => {
+    try {
+      // Implement your payment gateway here
+      setUserStats(prev => ({
+        ...prev,
+        isPremium: true
+      }));
+      alert('Welcome to Premium! You can now earn tokens for chat completions.');
+    } catch (error) {
+      console.error('Payment failed:', error);
+    }
+  };
+
+  const checkAndRewardTokens = () => {
+    if (!userStats.isPremium) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    if (userStats.dailyMessageCount < DAILY_MESSAGE_LIMIT) {
+      const newTokens = TOKENS_PER_COMPLETION;
+      setUserStats(prev => ({
+        ...prev,
+        dailyMessageCount: prev.dailyMessageCount + 1,
+        totalTokensEarned: prev.totalTokensEarned + newTokens,
+        lastRewardDate: today
+      }));
+      setShowRewardNotification(true);
+      setTimeout(() => setShowRewardNotification(false), 3000);
+    }
+  };
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    const userMessage: Message = { type: 'user', content: input };
+    setMessages([...messages, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('https://chatapi.akash.network/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_AKASH_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'Meta-Llama-3-1-8B-Instruct-FP8',
+          messages: [
+            ...messages.map(msg => ({
+              role: msg.type === 'user' ? 'user' : 'assistant',
+              content: msg.content
+            })),
+            { role: 'user', content: input }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('API request failed');
+      }
+
+      const data: ApiResponse = await response.json();
+      const botMessage: Message = { 
+        type: 'bot', 
+        content: data.choices[0].message.content 
+      };
+      setMessages(prev => [...prev, botMessage]);
+      checkAndRewardTokens();
+    } catch (error) {
+      console.error('Error:', error);
+      const errorMessage: Message = { 
+        type: 'bot', 
+        content: 'Sorry, I encountered an error. Please try again.' 
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="flex flex-col h-screen max-h-[600px] w-[400px] bg-gray-900">
+      {/* Header with Premium Status */}
+      <div className="bg-[#FF414D] p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Bot className="w-6 h-6 text-white" />
+            <h1 className="text-xl font-bold text-white">Akash Network Chat</h1>
+          </div>
+          {userStats.isPremium ? (
+            <div className="flex items-center space-x-2">
+              <Crown className="w-5 h-5 text-yellow-400" />
+              <span className="text-sm text-white">Premium</span>
+            </div>
+          ) : (
+            <button
+              onClick={handlePremiumPurchase}
+              className="px-3 py-1 text-sm bg-yellow-500 text-white rounded-full hover:bg-yellow-600"
+            >
+              Get Premium
+            </button>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+        {userStats.isPremium && (
+          <div className="mt-2 text-sm text-white flex justify-between items-center">
+            <span>Daily Messages: {userStats.dailyMessageCount}/{DAILY_MESSAGE_LIMIT}</span>
+            <span>Tokens Earned: {userStats.totalTokensEarned.toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Chat Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 relative">
+        {messages.map((message, index) => (
+          <div
+            key={index}
+            className={`flex ${
+              message.type === 'user' ? 'justify-end' : 'justify-start'
+            }`}
+          >
+            <div
+              className={`max-w-[80%] p-3 rounded-lg ${
+                message.type === 'user'
+                  ? 'bg-[#FF414D] text-white'
+                  : 'bg-gray-800 text-gray-100'
+              }`}
+            >
+              {message.content}
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="bg-gray-800 text-gray-100 p-3 rounded-lg">
+              Thinking...
+            </div>
+          </div>
+        )}
+        
+        {/* Reward Notification */}
+        {showRewardNotification && (
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-white px-4 py-2 rounded-full flex items-center space-x-2 animate-bounce">
+            <Gift className="w-4 h-4" />
+            <span>+{TOKENS_PER_COMPLETION} tokens earned!</span>
+          </div>
+        )}
+      </div>
+
+      {/* Input Form */}
+      <form onSubmit={handleSubmit} className="p-4 border-t border-gray-800">
+        <div className="flex space-x-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type your message..."
+            className="flex-1 p-2 rounded-lg bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-[#FF414D]"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <button
+            type="submit"
+            className="p-2 bg-[#FF414D] rounded-lg text-white hover:bg-[#ff5c66] transition-colors"
+          >
+            <Send className="w-5 h-5" />
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
